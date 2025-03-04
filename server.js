@@ -279,7 +279,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3060;
 app.listen(PORT, () => {
   logger.info(`Servidor escuchando en el puerto ${PORT}`);
 });
