@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  medioswhatsapp:
+    build: .
+    container_name: medioswhatsapp
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3060
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+    ports:
+      - "3060:3060"  # Mapea el puerto 3000 del contenedor al puerto 3000 del host
+    volumes:
+      - ./public:/app/public  # Para persistir la carpeta "public"
