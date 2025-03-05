@@ -174,6 +174,9 @@ setInterval(() => {
 // Endpoint para procesar mensajes multimedia y generar URL temporal
 app.post('/processMedia', authenticateToken, async (req, res) => {
   try {
+    // Log para ver el payload completo recibido
+    logger.info("Payload recibido:", JSON.stringify(req.body));
+
     let messageData;
     if (Array.isArray(req.body)) {
       if (req.body.length === 0) {
@@ -207,13 +210,25 @@ app.post('/processMedia', authenticateToken, async (req, res) => {
       throw new Error('El mensaje no contiene un tipo multimedia soportado');
     }
     
+    // Registrar la información extraída del mensaje
     const mediaInfo = fullMessage.message[mediaType];
     logger.info("Caption:", mediaInfo.caption || 'Sin caption');
-    logger.info("URL:", mediaInfo.url);
-    logger.info("MIME type:", mediaInfo.mimetype);
+    logger.info("URL:", mediaInfo.url || 'URL no proporcionada');
+    logger.info("MIME type:", mediaInfo.mimetype || 'MIME type no proporcionado');
+    
+    // Verificar que el campo URL no esté vacío
+    if (!mediaInfo.url) {
+      throw new Error('El campo URL está vacío, no se puede descargar el medio');
+    }
     
     // Descargar y descifrar el archivo multimedia
-    const mediaData = await downloadMediaMessage(fullMessage, 'buffer');
+    let mediaData;
+    try {
+      mediaData = await downloadMediaMessage(fullMessage, 'buffer');
+    } catch (downloadError) {
+      logger.error("Error al descargar el medio:", downloadError);
+      throw new Error("Error en la descarga del medio");
+    }
     
     // Generar un nombre único para el archivo
     const fileName = `archivo_${Date.now()}${fileExtension}`;
@@ -235,10 +250,11 @@ app.post('/processMedia', authenticateToken, async (req, res) => {
       expiresIn: TOKEN_VALIDITY_DURATION / 1000 
     });
   } catch (error) {
-    logger.error('Error al procesar el mensaje multimedia:', error.message);
+    logger.error('Error al procesar el mensaje multimedia:', error.stack);
     res.status(500).json({ error: error.message });
   }
 });
+
 
 // Endpoint para la descarga temporal: el token es válido para 1 descarga o hasta que expire
 app.get('/download/:token', (req, res) => {
