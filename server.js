@@ -142,7 +142,8 @@ app.post('/generateToken', async (req, res) => {
 
 // Mapeo temporal para guardar tokens y la info del archivo (tokens para media)
 const tempFiles = new Map();
-const TOKEN_VALIDITY_DURATION = 60 * 1000; // Duración de validez del token para media: 60 segundos
+// Duración del token para media: 2 minutos (120000 ms)
+const TOKEN_VALIDITY_DURATION = 2 * 60 * 1000;
 
 // Limpieza periódica de tokens expirados (cada 2 minutos)
 setInterval(() => {
@@ -163,74 +164,71 @@ setInterval(() => {
 // Endpoint para procesar mensajes multimedia y generar URL temporal
 app.post('/processMedia', authenticateToken, async (req, res) => {
   try {
-    // Log para ver el payload completo recibido
-    logger.info("Payload recibido:", JSON.stringify(req.body));
-
-    let messageData;
-    if (Array.isArray(req.body)) {
-      if (req.body.length === 0) {
-        throw new Error('El payload está vacío');
-      }
-      messageData = req.body[0];
-    } else {
-      messageData = req.body;
-    }
+    logger.info("Payload recibido:");
+    // Se asume que el JSON recibido es el objeto multimedia directamente
+    const mediaObject = req.body;
     
-    const fullMessage = messageData.body;
-    if (!fullMessage || !fullMessage.message) {
-      throw new Error('No se encontró la información del mensaje');
-    }
-    
-    // Determinar el tipo de medio y la extensión del archivo
-    let mediaType, fileExtension;
-    if (fullMessage.message.imageMessage) {
+    // Determinar el tipo de medio (sin modificar el formato original)
+    let mediaType;
+    if (mediaObject.imageMessage) {
       mediaType = 'imageMessage';
-      fileExtension = '.jpg';
-    } else if (fullMessage.message.videoMessage) {
+    } else if (mediaObject.videoMessage) {
       mediaType = 'videoMessage';
-      fileExtension = '.mp4';
-    } else if (fullMessage.message.documentMessage) {
+    } else if (mediaObject.documentMessage) {
       mediaType = 'documentMessage';
-      fileExtension = '.pdf';
-    } else if (fullMessage.message.audioMessage) {
+    } else if (mediaObject.audioMessage) {
       mediaType = 'audioMessage';
-      fileExtension = '.mp3';
     } else {
       throw new Error('El mensaje no contiene un tipo multimedia soportado');
     }
     
-    // Registrar la información extraída del mensaje
-    const mediaInfo = fullMessage.message[mediaType];
-    logger.info("Caption:", mediaInfo.caption || 'Sin caption');
-    logger.info("URL:", mediaInfo.url || 'URL no proporcionada');
-    logger.info("MIME type:", mediaInfo.mimetype || 'MIME type no proporcionado');
+    // Extraer la información relevante
+    const mediaInfo = mediaObject[mediaType];
+    logger.info("Caption: " + (mediaInfo.caption || 'Sin caption'));
+    logger.info("URL: " + (mediaInfo.url || 'URL no proporcionada'));
+    logger.info("MIME type: " + (mediaInfo.mimetype || 'MIME type no proporcionado'));
     
-    // Verificar que el campo URL no esté vacío
     if (!mediaInfo.url) {
       throw new Error('El campo URL está vacío, no se puede descargar el medio');
     }
     
+    // Extraer la extensión:
+    // Para documentos, si existe el title, usarlo para obtener la extensión.
+    // Para otros, se extrae del mimetype.
+    let fileExtension = '';
+    if (mediaType === 'documentMessage' && mediaInfo.title) {
+      fileExtension = path.extname(mediaInfo.title);
+    } else if (mediaInfo.mimetype) {
+      const mimeParts = mediaInfo.mimetype.split('/');
+      if (mimeParts.length === 2) {
+        fileExtension = '.' + mimeParts[1];
+      }
+    }
+    
+    // Envolver el objeto recibido para que tenga la estructura { message: ... }
+    const messageWrapper = { message: mediaObject };
+    
     // Descargar y descifrar el archivo multimedia
     let mediaData;
     try {
-      mediaData = await downloadMediaMessage(fullMessage, 'buffer');
+      mediaData = await downloadMediaMessage(messageWrapper, 'buffer');
     } catch (downloadError) {
-      logger.error("Error al descargar el medio:", downloadError);
+      logger.error("Error en downloadMediaMessage:", downloadError);
       throw new Error("Error en la descarga del medio");
     }
     
-    // Generar un nombre único para el archivo
+    // Guardar el archivo en disco conservando el formato original
     const fileName = `archivo_${Date.now()}${fileExtension}`;
     const filePath = path.join(downloadFolder, fileName);
     fs.writeFileSync(filePath, mediaData);
     logger.info(`Medio descargado y guardado como ${filePath}`);
     
-    // Generar un token único para la descarga de media
+    // Generar token único para la descarga controlada
     const mediaToken = crypto.randomBytes(16).toString('hex');
     const expiresAt = Date.now() + TOKEN_VALIDITY_DURATION;
     tempFiles.set(mediaToken, { filePath, expiresAt });
     
-    // URL para la descarga controlada
+    // La URL generada permitirá visualizar el archivo inline sin forzar la descarga
     const downloadUrl = `${req.protocol}://${req.get('host')}/download/${mediaToken}`;
     
     res.status(200).json({ 
@@ -244,7 +242,7 @@ app.post('/processMedia', authenticateToken, async (req, res) => {
   }
 });
 
-// Endpoint para la descarga temporal: el token es válido para 1 descarga o hasta que expire
+// Endpoint para servir el archivo en línea (inline) sin forzar la descarga
 app.get('/download/:token', (req, res) => {
   const token = req.params.token;
   if (!tempFiles.has(token)) {
@@ -262,15 +260,38 @@ app.get('/download/:token', (req, res) => {
     return res.status(404).json({ error: 'Token inválido o expirado' });
   }
   
-  res.download(data.filePath, err => {
+  // Obtener el nombre del archivo desde filePath
+  const fileName = path.basename(data.filePath);
+  
+  // Establecer el encabezado para mostrar el contenido inline
+  res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+  
+  // Configurar Content-Type según la extensión del archivo (se conserva el formato original)
+  const ext = path.extname(fileName).toLowerCase();
+  let contentType = 'application/octet-stream';
+  if (ext === '.jpg' || ext === '.jpeg') {
+    contentType = 'image/jpeg';
+  } else if (ext === '.png') {
+    contentType = 'image/png';
+  } else if (ext === '.mp4') {
+    contentType = 'video/mp4';
+  } else if (ext === '.pdf') {
+    contentType = 'application/pdf';
+  } else if (ext === '.mp3') {
+    contentType = 'audio/mpeg';
+  } else if (ext === '.docx' || ext === '.doc') {
+    contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  }
+  res.setHeader('Content-Type', contentType);
+  
+  // Enviar el archivo usando sendFile para mostrarlo inline
+  res.sendFile(path.resolve(data.filePath), err => {
     if (err) {
-      logger.error('Error en la descarga:', err);
+      logger.error('Error en el envío del archivo:', err);
+      res.status(500).json({ error: 'Error al enviar el archivo' });
     } else {
-      fs.unlink(data.filePath, err => {
-        if (err) logger.error(`Error al eliminar ${data.filePath}:`, err);
-        else logger.info(`Archivo ${data.filePath} eliminado tras la descarga.`);
-      });
-      tempFiles.delete(token);
+      logger.info(`Archivo ${data.filePath} enviado correctamente`);
+      // El archivo se mantendrá en disco hasta que expire el token (2 minutos) y sea eliminado por el proceso de limpieza
     }
   });
 });
