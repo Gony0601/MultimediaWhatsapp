@@ -8,24 +8,17 @@ require('dotenv').config();
 
 const helmet = require('helmet');
 
-// ======================
-// MODIFICADO: Instanciar app antes de usar middleware
-// ======================
+// Instanciar app y configurar trust proxy para reconocer HTTPS tras Traefik
 const app = express();
+app.set('trust proxy', true);
 
-// ======================
-// MODIFICADO: Agregar middleware de seguridad con Helmet
-// ======================
+// Middleware de seguridad con Helmet
 app.use(helmet());
 
-// ======================
-// MODIFICADO: Middleware para parsear JSON con límite aumentado
-// ======================
+// Middleware para parsear JSON con límite aumentado
 app.use(express.json({ limit: '50mb' }));
 
-// ======================
-// MODIFICADO: Integración de Winston para logging
-// ======================
+// Integración de Winston para logging
 const winston = require('winston');
 const logger = winston.createLogger({
   level: 'info',
@@ -42,17 +35,13 @@ const logger = winston.createLogger({
   ]
 });
 
-// ======================
-// MODIFICADO: Middleware de logging de solicitudes
-// ======================
+// Middleware de logging de solicitudes
 app.use((req, res, next) => {
   logger.info(`Request: ${req.method} ${req.url}`);
   next();
 });
 
-// ======================
-// MODIFICADO: Verificar y crear la carpeta 'dowloadtmt' si no existe
-// ======================
+// Verificar y crear la carpeta 'dowloadtmt' si no existe
 const downloadFolder = 'dowloadtmt';
 if (!fs.existsSync(downloadFolder)) {
   fs.mkdirSync(downloadFolder, { recursive: true });
@@ -255,7 +244,6 @@ app.post('/processMedia', authenticateToken, async (req, res) => {
   }
 });
 
-
 // Endpoint para la descarga temporal: el token es válido para 1 descarga o hasta que expire
 app.get('/download/:token', (req, res) => {
   const token = req.params.token;
@@ -287,9 +275,7 @@ app.get('/download/:token', (req, res) => {
   });
 });
 
-// ======================
-// MODIFICADO: Middleware de manejo de errores
-// ======================
+// Middleware de manejo de errores
 app.use((err, req, res, next) => {
   logger.error('Unhandled error:', err.stack);
   res.status(500).json({ error: 'Internal Server Error' });

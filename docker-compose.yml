@@ -1,14 +1,28 @@
 services:
-  medioswhatsapp:
+  multimediawhatsapp:
     build: .
-    container_name: medioswhatsapp
+    container_name: multimediawhatsapp
     restart: unless-stopped
-    environment:
-      - NODE_ENV=production
-      - PORT=3060
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_KEY=${SUPABASE_KEY}
-    ports:
-      - "3060:3060"  # Mapea el puerto 3000 del contenedor al puerto 3000 del host
+    env_file:
+      - .env
+    expose:
+      - "3060"
     volumes:
-      - ./public:/app/public  # Para persistir la carpeta "public"
+      - ./public:/app/public
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik_proxy"
+      - "traefik.http.routers.multimedia.rule=Host(`multimedia.n8nflow.pro`)"
+      - "traefik.http.routers.multimedia.entrypoints=websecure"
+      - "traefik.http.routers.multimedia.tls=true"
+      - "traefik.http.routers.multimedia.tls.certresolver=myresolver"
+      - "traefik.http.services.multimedia.loadbalancer.server.port=3060"
+    networks:
+      - traefik_proxy
+
+networks:
+  traefik_proxy:
+    external: true
+
